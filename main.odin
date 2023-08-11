@@ -52,6 +52,8 @@ main :: proc() {
 }
 
 check :: proc(url: string) {
+    log.infof("Checking: %s", url)
+
 	response, err := client.get(url)
 	if err != nil {
 		notify_down(url, fmt.tprintf("%v", err))
