@@ -12,8 +12,6 @@ WORKDIR /app
 
 COPY . .
 
-RUN git submodule update --init --recursive
-
 RUN odin build . -o:speed -out:site-checker -extra-linker-flags:"-static -march=native"
 
 FROM scratch
