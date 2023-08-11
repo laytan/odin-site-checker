@@ -5,6 +5,9 @@ import "core:os"
 import "core:strings"
 import "core:fmt"
 import "core:net"
+import "core:thread"
+import "core:sync"
+import "core:time"
 
 import "pkg/http"
 import "pkg/http/client"
@@ -43,22 +46,32 @@ config :: proc() {
 
 main :: proc() {
 	context.logger = log.create_console_logger()
-	context.allocator = context.temp_allocator
 
 	log.info("Checking sites...")
 	defer log.info("Checked sites")
 
-	for site in conf.to_check do check(site)
+	wg: sync.Wait_Group
+	sync.wait_group_add(&wg, len(conf.to_check))
+
+	for _, i in conf.to_check {
+		thread.create_and_start_with_poly_data2(&wg, i, check, context)
+	}
+
+	if !sync.wait_group_wait_with_timeout(&wg, time.Second * 10) {
+		log.error("Timeout of 10 seconds reached")
+	}
 }
 
-check :: proc(url: string) {
-    log.infof("Checking: %s", url)
+check :: proc(wg: ^sync.Wait_Group, i: int) {
+	defer sync.wait_group_done(wg)
 
+	url := conf.to_check[i]
 	response, err := client.get(url)
 	if err != nil {
 		notify_down(url, fmt.tprintf("%v", err))
 		return
 	}
+	log.infof("%d %v - %s", response.status, response.status, url)
 
 	if !http.status_success(response.status) {
 		body, _, err := client.response_body(&response)
@@ -73,7 +86,7 @@ check :: proc(url: string) {
 }
 
 notify_down :: proc(url: string, err: string) {
-    txt := fmt.tprintf("%s is down, error was: %s", url, err)
+	txt := fmt.tprintf("%s is down, error was: %s", url, err)
 	send_url.queries["text"] = net.percent_encode(txt)
 	log.warn(txt)
 
@@ -82,9 +95,17 @@ notify_down :: proc(url: string, err: string) {
 	if !http.status_success(response.status) {
 		body, _, err := client.response_body(&response)
 		if err != nil {
-			log.panicf("Could not send telegram message, got status %d with body error: %v", response.status, err)
+			log.panicf(
+				"Could not send telegram message, got status %d with body error: %v",
+				response.status,
+				err,
+			)
 		}
 
-		log.panicf("Could not send telegram message, got status %d with body: %v", response.status, body)
+		log.panicf(
+			"Could not send telegram message, got status %d with body: %v",
+			response.status,
+			body,
+		)
 	}
 }
